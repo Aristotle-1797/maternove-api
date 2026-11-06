@@ -1,18 +1,31 @@
 const crypto = require("crypto");
 const { admin, PLANS } = require("./_shared");
 
-const APP_URL = process.env.APP_URL; // e.g. https://maternove.web.app
+// Comma-separated list of sites allowed to call this API, no trailing slashes.
+const ALLOWED = (process.env.ALLOWED_ORIGINS || process.env.APP_URL || "")
+  .split(",")
+  .map((s) => s.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", APP_URL);
+function cors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 }
 
 module.exports = async function handler(req, res) {
-  cors(res);
+  cors(req, res);
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED.includes(origin)) {
+    return res.status(403).json({ error: "Origin not allowed." });
+  }
 
   try {
     const header = req.headers.authorization || "";
@@ -37,7 +50,8 @@ module.exports = async function handler(req, res) {
         currency: "KES",
         reference,
         channels: ["card", "mobile_money"],
-        callback_url: APP_URL + "/profile.html?payment=done",
+        // Send her back to the site she paid from
+        callback_url: origin + "/profile.html?payment=done",
         metadata: { uid: decoded.uid, plan: req.body.plan },
       }),
     });
